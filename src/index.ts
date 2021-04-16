@@ -41,6 +41,7 @@ import {
   fastestCar,
   fastestCar2,
   fastestCar3,
+  fastestCar4,
 } from "./mostly-adequate-guide/ch5/exercises";
 
 deepStrictEqual(match(/\s+/g, "hello world"), matchC(/\s+/g)("hello world"));
@@ -105,3 +106,4 @@ deepStrictEqual(availablePrices(CARS), availablePrices2(CARS));
 deepStrictEqual(fastestCar(CARS), "Aston Martin One-77 is the fastest");
 deepStrictEqual(fastestCar(CARS), fastestCar2(CARS));
 deepStrictEqual(fastestCar(CARS), fastestCar3(CARS));
+deepStrictEqual(fastestCar(CARS), fastestCar4(CARS));

@@ -221,3 +221,11 @@ export const fastestCar3: Arity1<Cars, string> = compose(
   last,
   sortBy(prop("horsepower"))
 );
+
+export const fastestCar4: Arity1<Cars, string> = flow(
+  sortBy(prop("horsepower")),
+  last,
+  defaultTo(createCar()),
+  prop("name"),
+  flip(concat)(" is the fastest")
+);
