@@ -43,6 +43,19 @@ import {
   fastestCar3,
   fastestCar4,
 } from "./mostly-adequate-guide/ch5/exercises";
+import {
+  Container,
+  Either,
+  getAge,
+  getTwenty,
+  getTwenty2,
+  Maybe,
+  streetName,
+  zoltar,
+  zoltar2,
+} from "./mostly-adequate-guide/ch8";
+import { add, prop } from "ramda";
+import dayjs from "dayjs";
 
 deepStrictEqual(match(/\s+/g, "hello world"), matchC(/\s+/g)("hello world"));
 
@@ -107,3 +120,115 @@ deepStrictEqual(fastestCar(CARS), "Aston Martin One-77 is the fastest");
 deepStrictEqual(fastestCar(CARS), fastestCar2(CARS));
 deepStrictEqual(fastestCar(CARS), fastestCar3(CARS));
 deepStrictEqual(fastestCar(CARS), fastestCar4(CARS));
+
+deepStrictEqual(
+  Container.of(2).map((two) => two + 2),
+  Container.of(4)
+);
+
+deepStrictEqual(
+  Container.of("flamethrowers").map((s) => s.toUpperCase()),
+  Container.of("FLAMETHROWERS")
+);
+
+deepStrictEqual(
+  Container.of("bombs")
+    .map((s) => `${s} away`)
+    .map((s) => s.length),
+  Container.of(10)
+);
+
+deepStrictEqual(
+  Maybe.of("Malkovich Malkovich").map(matchC(/a/gi)),
+  Maybe.of(["a", "a"])
+);
+
+deepStrictEqual(
+  Maybe.of<string | null>(null).map(matchC(/a/gi)),
+  Maybe.Nothing
+);
+
+deepStrictEqual(
+  Maybe.of<{ name: string; age: number }>({
+    name: "Boris",
+    age: NaN,
+  })
+    .map((a) => a.age)
+    .map((age) => age + 10),
+  Maybe.Nothing
+);
+
+deepStrictEqual(
+  Maybe.of<{ name: string; age: number }>({ name: "Dinah", age: 14 })
+    .map((a) => a.age)
+    .map((age) => age + 10),
+  Maybe.of(24)
+);
+
+deepStrictEqual(streetName({ addresses: [] }), Maybe.Nothing);
+deepStrictEqual(
+  streetName({ addresses: [{ street: "Shady Ln.", number: 4201 }] }),
+  Maybe.of("Shady Ln.")
+);
+
+deepStrictEqual(
+  getTwenty({
+    balance: 10,
+  }),
+  Maybe.Nothing
+);
+deepStrictEqual(
+  getTwenty({
+    balance: 200,
+  }),
+  Maybe.of("Your balance is $180")
+);
+deepStrictEqual(
+  getTwenty2({
+    balance: 200,
+  }),
+  "Your balance is $180"
+);
+deepStrictEqual(
+  getTwenty2({
+    balance: 10,
+  }),
+  "You're broke."
+);
+
+deepStrictEqual(
+  Either.of("rain").map((str) => `b${str}`),
+  Either.of("brain")
+);
+
+deepStrictEqual(
+  Either.left("rain").map(
+    (str) => `It's gonna ${str}, better bring your umbrella!`
+  ),
+  Either.left("rain")
+);
+
+deepStrictEqual(
+  Either.of({ host: "localhost", port: 80 }).map((a) => a.host),
+  Either.of("localhost")
+);
+
+deepStrictEqual(
+  Either.left("rolleyes").map((a: any) => a.host),
+  Either.left("rolleyes")
+);
+
+deepStrictEqual(getAge(dayjs(), { birthDate: "2005-12-12" }), Either.of(15));
+deepStrictEqual(
+  getAge(dayjs(), { birthDate: "July 32, 2001" }),
+  Either.left("Birth date could not be parsed")
+);
+
+deepStrictEqual(zoltar({ birthDate: "2005-12-12" }), Either.of(undefined));
+deepStrictEqual(
+  zoltar({ birthDate: "balloons" }),
+  Either.left("Birth date could not be parsed")
+);
+
+deepStrictEqual(zoltar2({ birthDate: "2005-12-12" }), undefined);
+deepStrictEqual(zoltar2({ birthDate: "balloons" }), undefined);
