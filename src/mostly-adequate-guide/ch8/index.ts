@@ -1,4 +1,4 @@
-import { flow } from "fp-ts/lib/function";
+import { flow, pipe } from "fp-ts/lib/function";
 import {
   prop,
   Functor,
@@ -9,8 +9,17 @@ import {
   concat,
   curryN,
   toString,
+  compose,
+  split,
+  map,
+  last,
+  filter,
+  equals,
+  head,
 } from "ramda";
 import dayjs, { Dayjs } from "dayjs";
+import { compose2 } from "../ch5";
+import { sign } from "../ch5/exercises";
 
 export class Container<A> {
   private $value: A;
@@ -216,3 +225,163 @@ export const zoltar2 = flow(
   Either.fold(identity, fortune),
   console.log
 );
+
+type IOFunction = () => any;
+
+export class IO<A> {
+  constructor(public readonly unsafePerformIO: () => A) {}
+
+  of<A>(a: A) {
+    return new IO(() => a);
+  }
+
+  ["fantasy-land/map"]: <B>(fn: (a: A) => B) => Functor<B>;
+  map<B>(f: (a: A) => B) {
+    return new IO(compose(f, this.unsafePerformIO));
+  }
+
+  static map<A, B>(f: (a: A) => B) {
+    return function (fa: IO<A>) {
+      return fa.map(f);
+    };
+  }
+}
+
+const windowIO = new IO(() => window);
+windowIO.map((w) => w.innerWidth);
+
+const href = windowIO
+  .map((w) => w.location)
+  .map((l) => l.href)
+  .map((h) => h.split("/"))
+  /** Pull the trigger... */
+  .unsafePerformIO();
+
+console.log(href);
+
+const $ = function (selector: string) {
+  return new IO(() => document.querySelectorAll(selector));
+};
+
+const innerHtml = $("#myDiv")
+  .map((es) => es[0])
+  .map((div) => div.innerHTML)
+  /** Pull the trigger... */
+  .unsafePerformIO();
+
+console.log(innerHtml);
+
+const url = windowIO.map((w) => w.location).map((l) => l.href);
+
+const toPairs: (s: string) => string[][] = flow(split("&"), map(split("=")));
+const params = flow(split("?"), last, toPairs);
+const findParams = (key: string) => {
+  return url
+    .map(params)
+    .map(filter(flow(head, equals(key))))
+    .map(safeHead);
+};
+
+const findParamsComposed = (key: string) => {
+  return map(flow(params, filter(flow(head, equals(key))), safeHead), url);
+};
+
+console.log(findParams("color").unsafePerformIO());
+console.log(findParamsComposed("color").unsafePerformIO());
+
+type TaskFunction<A> = (a: A) => void;
+
+const IdService = {
+  refs: [] as [object, number][],
+  getId(ref: object): number {
+    const found = this.refs.find(([inside, id]) => inside === ref);
+
+    if (found) {
+      return found[1];
+    }
+
+    const id = Math.random();
+    this.refs.push([ref, id]);
+
+    return id;
+  },
+};
+
+/**
+ * A task is an async code that (should) NEVER fails.
+ */
+class Task<R> {
+  constructor(public readonly evaluate: (resolve: TaskFunction<R>) => void) {}
+
+  map<B>(f: (a: R) => B): Task<B> {
+    /**
+     * Composition here looks "inverted"
+     * maybe because the tasks run in a "inverted" fashion
+     * We are piling the resolved values...
+     */
+    return new Task((g) => this.evaluate(compose(g, f)));
+  }
+
+  chain<B>(f: (a: R) => Task<B>): Task<B> {
+    return new Task<B>((resolve) =>
+      this.evaluate((a) => f(a).evaluate(resolve))
+    );
+  }
+
+  static fromPromise<R>(promise: Promise<R>) {
+    return new Task<R>((resolve) => promise.then(resolve));
+  }
+
+  static fromThunk<L, R>(thunk: () => Promise<R>) {
+    return new Task<R>((resolve) => thunk().then(resolve));
+  }
+
+  static of<A>(a: A) {
+    return new Task<A>((resolve) => {
+      resolve(a);
+    });
+  }
+}
+
+/** FS Mock */
+const fs = {
+  readFile: (fileName: string) =>
+    new Promise<string>((resolve, reject) => {
+      setTimeout(() => {
+        Math.random() > 0.5
+          ? resolve(
+              "One morning, as Gregor Samsa was waking up from anxious dreams, he discovered that in bed he had been\nchanged into a monstrous verminous bug."
+            )
+          : reject(new Error(`Could not find file ${fileName}.`));
+      }, Math.random() * 5000);
+    }),
+};
+
+const readFile = (fileName: string) =>
+  Task.fromThunk(() => fs.readFile(fileName));
+
+const fetchT = (info: RequestInfo, init?: RequestInit) =>
+  Task.fromThunk(() => fetch(info, init));
+
+readFile("metamorphosis").map(split("\n")).map(head).evaluate(console.log);
+
+type Movie = {
+  Title: string;
+};
+type Search = Movie[];
+type APIResponse = {
+  Search: Search;
+};
+
+const json = <A>(response: Response) => response.json() as Promise<A>;
+
+fetchT("https://fake-movie-database-api.herokuapp.com/api?s=Batman")
+  .chain(flow(sign<Response, Promise<APIResponse>>(json), Task.fromPromise))
+  .map(prop("Search"))
+  .map(safeHead)
+  .map(Maybe.map(prop("Title")))
+  .evaluate(console.log);
+
+Task.of(3)
+  .map((three) => three + 1)
+  .evaluate(console.log);
