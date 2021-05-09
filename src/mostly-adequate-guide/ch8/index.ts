@@ -3,11 +3,9 @@ import {
   prop,
   Functor,
   identity,
-  curry,
   partial,
   add,
   concat,
-  curryN,
   toString,
   compose,
   split,
@@ -16,10 +14,14 @@ import {
   filter,
   equals,
   head,
+  sortBy,
 } from "ramda";
 import dayjs, { Dayjs } from "dayjs";
-import { compose2 } from "../ch5";
 import { sign } from "../ch5/exercises";
+import * as TE from "fp-ts/TaskEither";
+import * as T from "fp-ts/T";
+import * as E from "fp-ts/Either";
+import * as I from "fp-ts/IO";
 
 export class Container<A> {
   private $value: A;
@@ -122,7 +124,7 @@ type AddressBook = {
 export const streetName: (o: AddressBook) => Maybe<string> = flow(
   prop("addresses"),
   safeHead,
-  Maybe.map(prop("street"))
+  Maybe.map(prop("street")),
 );
 
 type Account = {
@@ -130,7 +132,7 @@ type Account = {
 };
 
 export const withdraw: (n: number) => (a: Account) => Maybe<Account> = (
-  amount
+  amount,
 ) => ({ balance }) =>
   Maybe.of<Account>(balance >= amount ? { balance: balance - amount } : null);
 
@@ -142,13 +144,13 @@ const updateLedger: (a: Account) => Account = identity;
 
 const finishTransaction: (a: Account) => string = flow(
   updateLedger,
-  remainingBalance
+  remainingBalance,
 );
 
 export const getTwenty = flow(withdraw(20), Maybe.map(finishTransaction));
 export const getTwenty2 = flow(
   withdraw(20),
-  partial(Maybe.fold, ["You're broke.", finishTransaction])
+  partial(Maybe.fold, ["You're broke.", finishTransaction]),
 );
 
 export abstract class Either<L, R> {
@@ -211,19 +213,19 @@ export const getAgeC = (now: Dayjs) => (user: User) => getAge(now, user);
 export const fortune: (n: number) => string = flow(
   add(1),
   toString,
-  concat("If you survive, you will be ")
+  concat("If you survive, you will be "),
 );
 
 export const zoltar: (u: User) => Either<string, void> = flow(
   getAgeC(dayjs()),
   Either.map(fortune),
-  Either.map(console.log)
+  Either.map(console.log),
 );
 
 export const zoltar2 = flow(
   getAgeC(dayjs()),
   Either.fold(identity, fortune),
-  console.log
+  console.log,
 );
 
 type IOFunction = () => any;
@@ -324,7 +326,7 @@ class Task<R> {
 
   chain<B>(f: (a: R) => Task<B>): Task<B> {
     return new Task<B>((resolve) =>
-      this.evaluate((a) => f(a).evaluate(resolve))
+      this.evaluate((a) => f(a).evaluate(resolve)),
     );
   }
 
@@ -350,7 +352,7 @@ const fs = {
       setTimeout(() => {
         Math.random() > 0.5
           ? resolve(
-              "One morning, as Gregor Samsa was waking up from anxious dreams, he discovered that in bed he had been\nchanged into a monstrous verminous bug."
+              "One morning, as Gregor Samsa was waking up from anxious dreams, he discovered that in bed he had been\nchanged into a monstrous verminous bug.",
             )
           : reject(new Error(`Could not find file ${fileName}.`));
       }, Math.random() * 5000);
@@ -385,3 +387,116 @@ fetchT("https://fake-movie-database-api.herokuapp.com/api?s=Batman")
 Task.of(3)
   .map((three) => three + 1)
   .evaluate(console.log);
+
+/**
+ * Hypothetical Pure Application
+ */
+type Post = {
+  date: Date;
+};
+type Posts = Post[];
+
+declare function blogPage(ps: Posts): HTMLElement;
+
+const renderPage: (ps: Posts) => HTMLElement = compose(
+  blogPage,
+  sortBy((a) => a.date),
+);
+
+declare function getJSON(
+  url: RequestInfo,
+): (params: RequestInit) => TE.TaskEither<Error, Posts>;
+
+const blog: (
+  params: RequestInit,
+) => TE.TaskEither<Error, HTMLElement> = compose(
+  TE.map(renderPage),
+  getJSON("/posts"),
+);
+
+/**
+ * Hypothetical Impure Calling
+ */
+
+const invoke = blog({});
+
+invoke().then(
+  E.fold(
+    /** Either.Left */
+    console.error,
+    (el) => document.body.append(el),
+  ),
+  /** Task failure */
+  console.error,
+);
+
+/**
+ * Hypothetical Pure Application
+ */
+type Filename = string;
+type Url = string;
+type DbConnection = {};
+
+const Postgres = {
+  connect(url: Url): I.IO<DbConnection> {
+    return () => ({});
+  },
+};
+
+type Config = {
+  uname: string;
+  pass: string;
+  host: string;
+  db: string;
+};
+
+// dbUrl :: Config -> Either Error Url
+const dbUrl = ({ uname, pass, host, db }: Config): E.Either<Error, Url> => {
+  if (uname && pass && host && db) {
+    return E.right(`db:pg://${uname}:${pass}@${host}5432/${db}`);
+  }
+
+  return E.left(Error("Invalid config!"));
+};
+
+// connectDb :: Config -> Either Error (IO DbConnection)
+const connectDb: (c: Config) => E.Either<Error, I.IO<DbConnection>> = compose(
+  E.map(Postgres.connect),
+  dbUrl,
+);
+
+const FS = {
+  // readFile :: String -> Task Error String
+  readFile(fileName: Filename): T.Task<Error, string> {
+    return Task.of(fileName);
+  },
+};
+
+const toConfig = (content: string) => JSON.parse(content) as Config;
+
+// getConfig :: Filename -> Task Error (Either Error (IO DbConnection))
+const getConfig: (
+  fileName: Filename,
+) => TE.TaskEither<Error, E.Either<Error, I.IO<DbConnection>>> = compose(
+  T.map(compose(connectDb, toConfig)),
+  FS.readFile,
+);
+
+type ResultSet = {};
+
+// runQuery :: DbConnection -> ResultSet
+declare function runQuery(conn: DbConnection): ResultSet;
+
+// -- Impure calling code ----------------------------------------------
+
+pipe(
+  getConfig("db.json"),
+  /** Maybe failed to read the file, or read the configuration */
+  TE.chain(TE.fromEither),
+  /** Maybe failed to open the connection */
+  TE.chain(TE.fromIO),
+  /** If everything is OK, just runQuery */
+  TE.map(runQuery),
+  /** Otherwhise, just log the error. */
+  TE.mapLeft(console.error),
+);
